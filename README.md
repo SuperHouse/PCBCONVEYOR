@@ -3,7 +3,6 @@ PCB Conveyor Belt
 
 Copyright 2021 SuperHouse Automation Pty Ltd  www.superhouse.tv
 
-vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 THIS IS VERY PRELIMINARY! I'm adding this work-in-progress to GitHub
 so that Seon can access it, but it's not in a ready state for
 general consumption.
