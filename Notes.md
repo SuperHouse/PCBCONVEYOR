@@ -1,7 +1,7 @@
 Design Notes
 ============
 
-== Features
+## Features
 
  * Speed control. Perhaps H-bridge motor drivers to allow reversing.
  * Width control. Needs a stepper driver. External module?
@@ -12,11 +12,12 @@ Design Notes
  * Display to show width setting.
  * Homing switch.
  * Calibration of homing switch offset.
- * Configure width using gcode commands? Like a Y-axis motion system?
- * Maybe configure speed using gcode too, like an X-axis.
+ * Configure width using gcode commands.
+ * Maybe configure speed using gcode too? Like spindle speed / direction.
 
+I/O: Use MCP23017, and expose the extra pins on a spare header?
 
-== General notes
+## General notes
 
 Example conveyor:
 
@@ -24,8 +25,41 @@ https://www.alibaba.com/product-detail/KAYO-300-Automatic-PCB-Output-Connected_6
 
 Specs say that is 600-2200mm/min.
 
+N20 motor 100RPM:
 
-== Connections for controller
+ * 12V = 3620mm/min
+ * 4V = 1130mm/min
+ * 3V = 780mm/min
+ 
+Height from floor: SMEMA spec says 37" to 38" (940mm to 965mm)
+
+## Software
+The controller can be combined as a single device that provides the UI and also controls
+the hardware, using custom firmware, OR it can be split so there's an I/O controller as
+part of the chassis and a separate UI device.
+
+The second approach as the advantage that the I/O controller can run GRBL:
+
+ * Only enable the Y axis.
+ * Use the spindle output to control the conveyor motor:
+   * Spindle PWM speed control.
+   * Spindle direction control.
+
+With a separate I/O controller, it could be controlled by plugging in a USB cable from
+a laptop and not having a UI controller at all.
+
+https://github.com/gnea/grbl
+
+However, how would it do ready-in/ready-out, and board detection? Custom firmware may
+be better for those things.
+
+### User Interface
+https://www.bitsanddroids.com/creating-our-first-esp32-flight-display-graphics/
+
+## Lighting
+Should there be LED strips along the inside faces of the conveyor arms?
+
+## Connections for controller
 
  * Ethernet
  * USB
@@ -37,8 +71,33 @@ Specs say that is 600-2200mm/min.
  * Left-side sensor
  * Right-side sensor
 
+## Controller
+http://www.wireless-tag.com/portfolio/wt32-sc01/
 
-== Upstream / downstream connections
+### LCD driver
+https://github.com/moononournation/Arduino_GFX
+
+https://github.com/moononournation/Arduino_GFX/wiki/Dev-Device-Declaration
+
+
+#include <Arduino_GFX_Library.h>
+#define TFT_BL 23
+Arduino_DataBus *bus = new Arduino_ESP32SPI(21 /* DC */, 15 /* CS */, 14 /* SCK */, 13 /* MOSI */, -1 /* MISO */);
+Arduino_GFX *gfx = new Arduino_ST7796(bus, 22 /* RST */, 3 /* rotation */);
+
+https://haswitchplate.github.io/openHASP-docs/0.6/devices/wt32-sc01/
+
+https://www.alibaba.com/product-detail/WT32-SC01-ESP32-Dev-kitC-with_1600120762835.html
+
+### Touch screen driver
+
+https://stackoverflow.com/questions/58472138/find-ft6336-touch-screen-library-for-esp32
+
+https://github.com/crystalfontz/CFAF240400C0-030SC/blob/master/CFAF240400C0030T/CFAF240400C0030SC.ino
+
+https://github.com/strange-v/FT6X36
+
+## Upstream / downstream connections
 
 Needs a way to read from the adjacent device, and also to signal to
 that device.
@@ -48,9 +107,9 @@ Open-collector input, with GND connection, a pullup, and a data in.
 Dry-contact output. Perhaps a reed relay?
 
 
-== Movement logic
+## Movement logic
 
-=== Incoming board
+### Incoming board
 
 When there is no board ready to be sent, upstreams RO will not be
 asserted.
@@ -67,7 +126,7 @@ When both RO and RI on upstream are asserted, start the belt.
 
 
 
-== Board sensor
+## Board sensor
 
 Sensor type: VL53L0X
 
