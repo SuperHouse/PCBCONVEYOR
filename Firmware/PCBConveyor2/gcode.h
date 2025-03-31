@@ -3,21 +3,27 @@
 
 String g_input_buffer = "";
 
-#define GCODE_HOME              28
-#define GCODE_MOVE               0
-#define MCODE_SPINDLE_RIGHT     03
-#define MCODE_SPINDLE_LEFT      04
-#define MCODE_SPINDLE_STOP      05
+#define GCODE_HOME               28
+#define GCODE_MOVE                0
+#define MCODE_SPINDLE_RIGHT      03
+#define MCODE_SPINDLE_LEFT       04
+#define MCODE_SPINDLE_STOP       05
 
-#define MCODE_LOAD_TO_MIDDLE    50
-#define MCODE_LOAD_TO_END       51
-#define MCODE_MOVE_TO_END       52
-#define MCODE_UNLOAD            53
+#define MCODE_LOAD_TO_MIDDLE_NOW 50   // Load to middle immediately
+#define MCODE_LOAD_TO_MIDDLE     51   // Load to middle when ready-in/out
+#define MCODE_LOAD_TO_END_NOW    52   // Load to end immediately
+#define MCODE_MOVE_TO_END        53   // Move first board on the conveyor to the end
+#define MCODE_UNLOAD_NOW         54   // Unload immediately
+#define MCODE_UNLOAD             55   // Unload when ready-in/out
+#define MCODE_UNLOAD_TIMED       56   // Unload at a timed interval
+#define MCODE_BUFFER             57   // Load and unload when ready-in/out
+#define MCODE_BUFFER_TIMED       58   // Load when ready-in/out, unload at timed interval
 
-//"M50" LOAD the conveyor and stop it in the middle
-//"M51" LOAD the conveyor and stop it at the end
-//"M52" move the first board on the conveyor to the end
-//"M53" UNLOAD one board and then stop
+//"M50 S800" LOAD the conveyor and stop it in the middle
+//"M52 S800" LOAD the conveyor and stop it at the end
+//"M53 S800" move the first board on the conveyor to the end
+//"M54 S800" UNLOAD one board and then stop
+//"M56 S800 P5" UNLOAD boards with 5 seconds pause (dwell time) between them
 
 /*
   Look for character /code/ in the inputBuffer and read the float that immediately follows it.
@@ -190,9 +196,20 @@ void processGCodeMessage()
         break;
       }
 
-    case MCODE_UNLOAD:
+    case MCODE_UNLOAD_NOW:
       valid_command_found = true;
-      perform_state_transition(STATE_UNLOAD_BEGIN);
+      //uint16_t requested_speed = parseGCodeParameter('S', -1);
+      setRequestedSpeed(parseGCodeParameter('S', -1));
+      perform_state_transition(STATE_UNLOAD_NOW_BEGIN);
+      break;
+
+    case MCODE_UNLOAD_TIMED:
+      valid_command_found = true;
+      setRequestedSpeed(parseGCodeParameter('S', -1));
+      g_requested_pause = parseGCodeParameter('P', -1);
+      Serial.print("Going to: ");
+      Serial.println(STATE_UNLOAD_TIMED_BEGIN);
+      perform_state_transition(STATE_UNLOAD_TIMED_BEGIN);
       break;
   }
 

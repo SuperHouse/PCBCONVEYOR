@@ -1,6 +1,7 @@
 /* ----------------- General config -------------------------------- */
 #define  ENABLE_WIFI               true
 #define  ENABLE_MQTT               true
+#define  ENABLE_LCD               false
 
 #define  LIMIT_BACKOFF              100  // Steps, make it mm later
 #define  HOME_SWITCH_OFFSET         297  // mm from 0 width to the homed position
@@ -9,7 +10,7 @@
 #define  MINIMUM_SPEED              600  // Never go slower than this
 #define  MAXIMUM_SPEED             2200  // Never go faster than this
 
-#define  RUNON_TIME                 800  // ms. Runtime after unload sensor cleared.
+#define  RUNON_TIME                   0  // ms. Runtime after unload sensor cleared.
 #define  LOAD_TIMEOUT                30  // Seconds. Stop if nothing appears within this time.
 #define  UNLOAD_TIMEOUT              30  // Seconds. Stop if nothing gets to the exit within this time.
 // Note: UNLOAD_TIMEOUT may be the wrong way of thinking about this, because the speed

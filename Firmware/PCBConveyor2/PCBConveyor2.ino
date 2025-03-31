@@ -8,25 +8,32 @@
   "G28" does a Y-axis homing sequence. Arguments are ignored.
   "G0 Y<distance>" move the Y axis to the defined mm width.
 
-  "M03 S<speed>" set the direction as clockwise (left to right) (default).
-  "M04 S<speed>" set the direction as counterclockwise (right to left).
-  "M05 S<speed>" stop the conveyor.
+  "M03 S<speed>"           Set the direction as clockwise (left to right) (default).
+  "M04 S<speed>"           Set the direction as counterclockwise (right to left).
+  "M05 S<speed>"           Stop the conveyor.
+
+  "M10"                    Clamp a PCB                                      **DEFINED BUT NOT USED**
+  "M11"                    Unclamp a PCB                                    **DEFINED BUT NOT USED**
+  "M17 S<position>"        Request status of a sensor at <position>         **NOT YET IMPLEMENTED**
+
+  "M50 S<speed>"           Load to middle immediately                       **NOT YET IMPLEMENTED**
+  "M51 S<speed>"           Load to middle when ready-in/out                 **NOT YET IMPLEMENTED**
+  "M52 S<speed>"           Load to end immediately                          **NOT YET IMPLEMENTED**
+  "M53 S<speed>"           Move first board on the conveyor to the end      **NOT YET IMPLEMENTED**
+  "M54 S<speed>"           Unload immediately
+  "M55 S<speed>"           Unload when ready-in/out                         **NOT YET IMPLEMENTED**
+  "M56 S<speed> P<dwell>"  Unload at a timed interval
+  "M57 S<speed>"           Load and unload when ready-in/out                **NOT YET IMPLEMENTED**
+  "M58 S<speed> P<dwell>"  Load when ready-in/out, unload at timed interval **NOT YET IMPLEMENTED**
+
+  The <speed> argument is in mm/minute. Range is 600 - 2200mm/min.
+
+  The <dwell> argument is in seconds.
 
   NOTE: There is no way to set the speed of the conveyor without giving
   left / right / stop as well. Perhaps add a config value for speed. Allan
   suggested a ramp up/down on speed change.
   ALSO: There is no way to set the direction without sending a move command.
-
-  //"M10" Clamp a PCB **DEFINED BUT NOT USED**
-  //"M11" Unclamp a PCB **DEFINED BUT NOT USED**
-  //"M17 S<position>" requests status of a sensor at <position> **NOT YET IMPLEMENTED**
-
-  //"M50" LOAD the conveyor and stop it in the middle **NOT YET IMPLEMENTED**
-  //"M51" LOAD the conveyor and stop it at the end **NOT YET IMPLEMENTED**
-  //"M52" move the first board on the conveyor to the end **NOT YET IMPLEMENTED**
-  "M53 S<speed>" UNLOAD one board and then stop
-
-  The <speed> argument is in mm/minute. Range is 600 - 2200mm/min.
 
   Arduino IDE ESP32 board profile:
   Go into Preferences -> Additional Board Manager URLs
@@ -48,7 +55,7 @@
 
   1. Make all the peripherals work
     To do:
-    - Speed control of Y axis motor
+    - Calibrate speed control of Y axis motor
     - Ready-in detection
     - Ready-out control
     Done:
@@ -64,12 +71,12 @@
     - Move left / right / stop
 
   3. Objective-driven / mode operations
-    - Timed unloading of PCBs (for feeding boards to reflow)
     - Unload PCB triggered by Ready-In from next machine (for feeding boards to PnP)
     - Load PCB to exit position
     - Load PCB to mid position
     Done:
     - Unload PCB triggered by M-Code command.
+    - Timed unloading of PCBs (for feeding boards to reflow)
 
   BUGS:
     - MCU reboots periodically, for no reason I can see.
@@ -96,7 +103,9 @@
 #include <ESPmDNS.h>                  // For OTA
 #include <WiFiUdp.h>                  // For OTA
 #include <ArduinoOTA.h>               // For OTA
+#if ENABLE_LCD
 #include <Arduino_GFX_Library.h>      // SPI LCD
+#endif
 #include <CAN.h>                      // By Sandeep Mistry
 #include "Adafruit_VL53L0X.h"         // For ToF board sensors
 #include <Adafruit_MCP23X17.h>        // For ToF sensors and in/out connections
@@ -106,28 +115,37 @@
 #define  LEFT   3
 #define  RIGHT  4
 
-#define  UNTRIPPED 0
-#define  TRIPPED   1
+#define  UNTRIPPED  0
+#define  TRIPPED    1
 
-#define  STATE_BEGIN              0
-#define  STATE_IDLE               1
-#define  STATE_ERROR              2
-#define  STATE_STOPPED           10
-#define  STATE_CONSTANT          11
+#define  STATE_BEGIN       0
+#define  STATE_IDLE        1
+#define  STATE_ERROR       2
+#define  STATE_STOPPED    10
+#define  STATE_CONSTANT   11
 
-// M53 Unload one board and then stop. This assumes a board is already sitting
-// on the conveyor.
-#define  STATE_UNLOAD_BEGIN       20
-#define  STATE_UNLOAD_MOVING      21   // Which will need a timeout
-#define  STATE_UNLOAD_REACHED_END 22
-#define  STATE_UNLOAD_CLEARED_END 23
-#define  STATE_UNLOAD_RUNON       24   // Continue running briefly after PCB cleared sensor
+// M54 Unload one board and then stop. This assumes a board is already sitting
+// on the conveyor. Ignores ready-in/out.
+#define  STATE_UNLOAD_NOW_BEGIN         540
+#define  STATE_UNLOAD_NOW_MOVING        541
+#define  STATE_UNLOAD_NOW_REACHED_END   542
+#define  STATE_UNLOAD_NOW_CLEARED_END   543
+#define  STATE_UNLOAD_NOW_RUNON         544   // Continue running briefly after PCB cleared sensor
 // What state do we transition to after 23? 1? 10?
 
-#define  OUT_OF_RANGE              4   // TOF sensors return 4 when out of range
+// M56 Unload boards at timed intervals. This assumes boards are already sitting
+// on the conveyor. Ignores ready-in/out.
+#define  STATE_UNLOAD_TIMED_BEGIN       560
+#define  STATE_UNLOAD_TIMED_MOVING      561
+#define  STATE_UNLOAD_TIMED_REACHED_END 562
+#define  STATE_UNLOAD_TIMED_CLEARED_END 563
+#define  STATE_UNLOAD_TIMED_RUNON       564   // Continue running briefly after PCB cleared sensor
+#define  STATE_UNLOAD_TIMED_PAUSE       565
+
+#define  OUT_OF_RANGE           4     // TOF sensors return 4 when out of range
 
 uint8_t  g_homed              = false;
-uint8_t  g_state              = STATE_BEGIN;
+uint16_t g_state              = STATE_BEGIN;
 uint32_t g_last_state_change  = 0;    // timestamp of last state change
 uint32_t step_count           = 0;
 float    g_current_y_position = 0.0;
@@ -135,6 +153,7 @@ float    g_current_y_position = 0.0;
 uint8_t  g_x_direction        = STOP; //
 uint16_t g_x_requested_speed  = 0;    // mm/min
 uint16_t g_x_actual_speed     = 0;    // mm/min
+int16_t  g_requested_pause    = 0;    // Seconds. -1 indicates not set or invalid
 
 #define  MAX_SERIAL_INPUT             50
 
@@ -170,7 +189,7 @@ uint32_t g_runon_began      = 0;      // ms since runon began
 /*--------------------------- Function Signatures ---------------------------*/
 void initialise_pcb_sensors();
 void debug_sensor_values();
-void perform_state_transition(uint8_t g_state);
+void perform_state_transition(uint16_t g_state);
 
 /*--------------------------- Macros ----------------------------------------*/
 
@@ -195,8 +214,10 @@ WiFiClient esp_client;
 PubSubClient client(esp_client);
 #endif
 
+#if ENABLE_LCD
 Arduino_DataBus *bus = new Arduino_ESP32SPI(21 /* DC */, 15 /* CS */, 14 /* SCK */, 13 /* MOSI */, -1 /* MISO */);
 Arduino_GFX *gfx = new Arduino_ST7796(bus, 22 /* RST */, 3 /* rotation */);
+#endif
 
 /*--------------------------- Program ---------------------------------------*/
 /* Resources */
@@ -226,13 +247,15 @@ void setup()
   ledcAttachPin(PIN_X_IN1,          0);  // Pin, channel
   ledcAttachPin(PIN_X_IN2,          1);  // Pin, channel
 
+  g_input_buffer.reserve(MAX_SERIAL_INPUT);
+  yAxisStepper.setSpeed(13);  // RPM. Experiment with setting this higher.
+
+
+#if ENABLE_LCD
   pinMode(TFT_BL_PIN,          OUTPUT);
   ledcSetup(2, MOTOR_PWM_FREQUENCY, 8);  // Channel, frequency, resolution
   ledcAttachPin(TFT_BL_PIN,         2);  // Pin, channel
   ledcWrite(2, g_backlight_level);
-
-  g_input_buffer.reserve(MAX_SERIAL_INPUT);
-  yAxisStepper.setSpeed(13);  // RPM. Experiment with setting this higher.
 
   // Initialize LCD
   gfx->begin();
@@ -250,6 +273,7 @@ void setup()
   gfx->print("    PCB Conveyor v");
   gfx->println(VERSION);
   gfx->println("");
+#endif
 
   WiFi.mode(WIFI_STA);
 
@@ -269,6 +293,7 @@ void setup()
   Serial.println(g_mqtt_command_topic);     // For receiving commands
   Serial.println(g_mqtt_tele_topic);        // For telemetry
 
+#if ENABLE_LCD
   // Report the MQTT topics to the LCD
   gfx->setTextSize(2);
   //gfx->setCursor(0, 40);
@@ -280,6 +305,7 @@ void setup()
   gfx->print(" Telemetry:  ");
   gfx->setTextColor(GREEN);
   gfx->println(g_mqtt_tele_topic);
+#endif
 
   // Set up the I/O expander for limit sensors and in/out connections
   Wire.begin(SDA_PIN, SCL_PIN);
@@ -346,16 +372,20 @@ void setup()
     });
 
     ArduinoOTA.begin();
+#if ENABLE_LCD
     gfx->setTextColor(WHITE);
     gfx->print(" IP Address: ");
     gfx->setTextColor(GREEN);
     gfx->println(WiFi.localIP());
+#endif
   } else {
     Serial.println("Wifi [FAILED]");
+#if ENABLE_LCD
     gfx->setTextColor(WHITE);
     gfx->print(" IP Address: ");
     gfx->setTextColor(RED);
     gfx->println("FAILED");
+#endif
   }
 
   /* Set up the MQTT client */
@@ -418,21 +448,27 @@ void process_state_machine()
       // Do nothing
       break;
 
-    case STATE_UNLOAD_BEGIN:  // 20
+    /* UNLOAD_NOW block */
+    case STATE_UNLOAD_NOW_BEGIN:  // 20
       g_x_direction = RIGHT;
-      //setConveyorMotorSpeed();
-      perform_state_transition(STATE_UNLOAD_MOVING);
+      setConveyorMotorSpeed();
+      perform_state_transition(STATE_UNLOAD_NOW_MOVING);
       break;
 
-    case STATE_UNLOAD_MOVING:  // 21
+    case STATE_UNLOAD_NOW_MOVING:  // 21
       // Check exit sensor
       if (TRIPPED == g_exit_sensor)
       {
-        perform_state_transition(STATE_UNLOAD_REACHED_END);
+        perform_state_transition(STATE_UNLOAD_NOW_REACHED_END);
+      }
+      if (millis() > g_last_state_change + (UNLOAD_TIMEOUT * 1000))
+      {
+        g_x_direction = STOP;
+        perform_state_transition(STATE_IDLE);
       }
       break;
 
-    case STATE_UNLOAD_REACHED_END:  //22
+    case STATE_UNLOAD_NOW_REACHED_END:  //22
       // Check exit sensor
       if (UNTRIPPED == g_exit_sensor)
       {
@@ -440,20 +476,20 @@ void process_state_machine()
         if (g_exit_sensor_u_count > SENSOR_DEBOUNCE_COUNT)
         {
           g_exit_sensor_u_count = 0;
-          perform_state_transition(STATE_UNLOAD_CLEARED_END);
+          perform_state_transition(STATE_UNLOAD_NOW_CLEARED_END);
         }
       } else {
         g_exit_sensor_u_count = 0;
       }
       break;
 
-    case STATE_UNLOAD_CLEARED_END:  // 23
+    case STATE_UNLOAD_NOW_CLEARED_END:  // 23
       // Begin the runon timer
       g_runon_began = millis();
-      perform_state_transition(STATE_UNLOAD_RUNON);
+      perform_state_transition(STATE_UNLOAD_NOW_RUNON);
       break;
 
-    case STATE_UNLOAD_RUNON:  // 24
+    case STATE_UNLOAD_NOW_RUNON:  // 24
       // Check the runon timer
       if (millis() > g_runon_began + RUNON_TIME)
       {
@@ -462,6 +498,66 @@ void process_state_machine()
       }
       break;
 
+    /* UNLOAD_TIMED block */
+    case STATE_UNLOAD_TIMED_BEGIN:  //
+      g_x_direction = RIGHT;
+      setConveyorMotorSpeed();
+      perform_state_transition(STATE_UNLOAD_TIMED_MOVING);
+      break;
+
+    case STATE_UNLOAD_TIMED_MOVING:  //
+      // Check exit sensor
+      if (TRIPPED == g_exit_sensor)
+      {
+        perform_state_transition(STATE_UNLOAD_TIMED_REACHED_END);
+      }
+      if (millis() > g_last_state_change + (UNLOAD_TIMEOUT * 1000))
+      {
+        g_x_direction = STOP;
+        perform_state_transition(STATE_IDLE);
+      }
+      break;
+
+    case STATE_UNLOAD_TIMED_REACHED_END:  //
+      // Check exit sensor
+      if (UNTRIPPED == g_exit_sensor)
+      {
+        g_exit_sensor_u_count++;
+        if (g_exit_sensor_u_count > SENSOR_DEBOUNCE_COUNT)
+        {
+          g_exit_sensor_u_count = 0;
+          perform_state_transition(STATE_UNLOAD_TIMED_CLEARED_END);
+        }
+      } else {
+        g_exit_sensor_u_count = 0;
+      }
+      break;
+
+    case STATE_UNLOAD_TIMED_CLEARED_END:  //
+      // Begin the runon timer
+      g_runon_began = millis();
+      perform_state_transition(STATE_UNLOAD_TIMED_RUNON);
+      break;
+
+    case STATE_UNLOAD_TIMED_RUNON:  //
+      // Check the runon timer
+      if (millis() > g_runon_began + RUNON_TIME)
+      {
+        g_x_direction = STOP;
+        perform_state_transition(STATE_UNLOAD_TIMED_PAUSE);
+        g_runon_began = millis(); // We're going to reuse this timer for the next state
+      }
+      break;
+
+    case STATE_UNLOAD_TIMED_PAUSE:  //
+      // Check the pause timer
+      if (millis() > g_runon_began + (g_requested_pause * 1000))
+      {
+        perform_state_transition(STATE_UNLOAD_TIMED_BEGIN);
+      }
+      break;
+
+    /* Catchall */
     default:
       perform_state_transition(STATE_ERROR);
       break;
@@ -469,7 +565,7 @@ void process_state_machine()
 }
 
 
-void perform_state_transition(uint8_t new_state)
+void perform_state_transition(uint16_t new_state)
 {
   STATE_DEBUG_PRINT  ("sm: [");
   STATE_DEBUG_PRINT  (g_state);
