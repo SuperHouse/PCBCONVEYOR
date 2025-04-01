@@ -124,7 +124,7 @@
 #define  STATE_STOPPED    10
 #define  STATE_CONSTANT   11
 
-// M54 Unload one board and then stop. This assumes a board is already sitting
+// M54 S<speed>: Unload one board and then stop. This assumes a board is already sitting
 // on the conveyor. Ignores ready-in/out.
 #define  STATE_UNLOAD_NOW_BEGIN         540
 #define  STATE_UNLOAD_NOW_MOVING        541
@@ -133,14 +133,13 @@
 #define  STATE_UNLOAD_NOW_RUNON         544   // Continue running briefly after PCB cleared sensor
 // What state do we transition to after 23? 1? 10?
 
-// M56 Unload boards at timed intervals. This assumes boards are already sitting
-// on the conveyor. Ignores ready-in/out.
+// M56 S<speed> P<interval>: Unload boards at timed intervals. This assumes boards are
+// already sitting on the conveyor. Ignores ready-in/out.
 #define  STATE_UNLOAD_TIMED_BEGIN       560
 #define  STATE_UNLOAD_TIMED_MOVING      561
 #define  STATE_UNLOAD_TIMED_REACHED_END 562
 #define  STATE_UNLOAD_TIMED_CLEARED_END 563
-#define  STATE_UNLOAD_TIMED_RUNON       564   // Continue running briefly after PCB cleared sensor
-#define  STATE_UNLOAD_TIMED_PAUSE       565
+#define  STATE_UNLOAD_TIMED_PAUSE       564
 
 #define  OUT_OF_RANGE           4     // TOF sensors return 4 when out of range
 
@@ -178,7 +177,7 @@ VL53L0X_RangingMeasurementData_t g_pcb_sensor_r_reading;
 bool     g_entrance_sensor = UNTRIPPED;
 bool     g_middle_sensor   = UNTRIPPED;
 bool     g_exit_sensor     = UNTRIPPED;
-uint8_t  g_exit_sensor_u_count = 0;
+uint8_t  g_exit_sensor_count = 0;
 
 // General
 char g_device_id[23];                 // Unique ID from ESP chip ID
@@ -441,11 +440,16 @@ void process_state_machine()
   switch (g_state)
   {
     case STATE_BEGIN:  // 0
-      // Do nothing
+      g_x_direction = STOP;
+      break;
+
+    case STATE_IDLE:  // 1
+      g_x_direction = STOP;
       break;
 
     case STATE_ERROR:
-      // Do nothing
+      Serial.println("ERROR STATE");
+      g_x_direction = STOP;
       break;
 
     /* UNLOAD_NOW block */
@@ -472,14 +476,14 @@ void process_state_machine()
       // Check exit sensor
       if (UNTRIPPED == g_exit_sensor)
       {
-        g_exit_sensor_u_count++;
-        if (g_exit_sensor_u_count > SENSOR_DEBOUNCE_COUNT)
+        g_exit_sensor_count++;
+        if (g_exit_sensor_count > SENSOR_DEBOUNCE_COUNT)
         {
-          g_exit_sensor_u_count = 0;
+          g_exit_sensor_count = 0;
           perform_state_transition(STATE_UNLOAD_NOW_CLEARED_END);
         }
       } else {
-        g_exit_sensor_u_count = 0;
+        g_exit_sensor_count = 0;
       }
       break;
 
@@ -522,37 +526,45 @@ void process_state_machine()
       // Check exit sensor
       if (UNTRIPPED == g_exit_sensor)
       {
-        g_exit_sensor_u_count++;
-        if (g_exit_sensor_u_count > SENSOR_DEBOUNCE_COUNT)
+        g_exit_sensor_count++;
+        if (g_exit_sensor_count > SENSOR_DEBOUNCE_COUNT)
         {
-          g_exit_sensor_u_count = 0;
+          g_exit_sensor_count = 0;
           perform_state_transition(STATE_UNLOAD_TIMED_CLEARED_END);
         }
       } else {
-        g_exit_sensor_u_count = 0;
+        g_exit_sensor_count = 0;
       }
       break;
 
+    // Board has been unloaded, waiting for the next board to arrive at the exit
     case STATE_UNLOAD_TIMED_CLEARED_END:  //
-      // Begin the runon timer
-      g_runon_began = millis();
-      perform_state_transition(STATE_UNLOAD_TIMED_RUNON);
-      break;
-
-    case STATE_UNLOAD_TIMED_RUNON:  //
-      // Check the runon timer
-      if (millis() > g_runon_began + RUNON_TIME)
+      // Check exit sensor
+      if (TRIPPED == g_exit_sensor)
+      {
+        g_exit_sensor_count++;
+        if (g_exit_sensor_count > SENSOR_DEBOUNCE_COUNT)
+        {
+          g_exit_sensor_count = 0;
+          perform_state_transition(STATE_UNLOAD_TIMED_PAUSE);
+          Serial.println("Leaving");
+        }
+      } else {
+        g_exit_sensor_count = 0;
+      }
+      if (millis() > g_last_state_change + (UNLOAD_TIMEOUT * 1000))
       {
         g_x_direction = STOP;
-        perform_state_transition(STATE_UNLOAD_TIMED_PAUSE);
-        g_runon_began = millis(); // We're going to reuse this timer for the next state
+        perform_state_transition(STATE_IDLE);
       }
       break;
 
     case STATE_UNLOAD_TIMED_PAUSE:  //
+      g_x_direction = STOP;
       // Check the pause timer
-      if (millis() > g_runon_began + (g_requested_pause * 1000))
+      if (millis() > g_last_state_change + (g_requested_pause * 1000))
       {
+        Serial.println("Leaving 2");
         perform_state_transition(STATE_UNLOAD_TIMED_BEGIN);
       }
       break;
@@ -571,7 +583,10 @@ void perform_state_transition(uint16_t new_state)
   STATE_DEBUG_PRINT  (g_state);
   STATE_DEBUG_PRINT  (" -> ");
   STATE_DEBUG_PRINT  (new_state);
-  STATE_DEBUG_PRINTLN("]");
+  STATE_DEBUG_PRINT("] @ ");
+  STATE_DEBUG_PRINT(millis());
+  STATE_DEBUG_PRINT(", delta ");
+  STATE_DEBUG_PRINTLN(millis() - g_last_state_change);
 
   g_state = new_state;
   g_last_state_change = millis();
