@@ -12,12 +12,13 @@ String g_input_buffer = "";
 #define MCODE_LOAD_TO_MIDDLE_NOW 50   // Load to middle immediately
 #define MCODE_LOAD_TO_MIDDLE     51   // Load to middle when ready-in/out
 #define MCODE_LOAD_TO_END_NOW    52   // Load to end immediately
-#define MCODE_MOVE_TO_END        53   // Move first board on the conveyor to the end
-#define MCODE_UNLOAD_NOW         54   // Unload immediately
-#define MCODE_UNLOAD             55   // Unload when ready-in/out
-#define MCODE_UNLOAD_TIMED       56   // Unload at a timed interval
-#define MCODE_BUFFER             57   // Load and unload when ready-in/out
-#define MCODE_BUFFER_TIMED       58   // Load when ready-in/out, unload at timed interval
+#define MCODE_LOAD_TO_END        53   // Load to end when ready-in/out
+#define MCODE_MOVE_TO_END        54   // Move first board on the conveyor to the end
+#define MCODE_UNLOAD_NOW         55   // Unload immediately
+#define MCODE_UNLOAD             56   // Unload when ready-in/out
+#define MCODE_UNLOAD_TIMED       57   // Unload at a timed interval
+#define MCODE_BUFFER             58   // Load and unload when ready-in/out
+#define MCODE_BUFFER_TIMED       59   // Load when ready-in/out, unload at timed interval
 
 //"M50 S800" LOAD the conveyor and stop it in the middle
 //"M52 S800" LOAD the conveyor and stop it at the end
@@ -30,6 +31,7 @@ String g_input_buffer = "";
   @return the value found.  If nothing is found, /default_value/ is returned.
   @input code the character to look for.
   @input defaultVal the return value if /code/ is not found.
+  TODO: Make parser handle compressed messages with no delimiter
 */
 float parseGCodeParameter(char code, float default_value) {
   int8_t code_position = g_input_buffer.indexOf(code);
@@ -198,17 +200,20 @@ void processGCodeMessage()
 
     case MCODE_UNLOAD_NOW:
       valid_command_found = true;
-      //uint16_t requested_speed = parseGCodeParameter('S', -1);
       setRequestedSpeed(parseGCodeParameter('S', -1));
       perform_state_transition(STATE_UNLOAD_NOW_BEGIN);
+      break;
+
+    case MCODE_UNLOAD:
+      valid_command_found = true;
+      setRequestedSpeed(parseGCodeParameter('S', -1));
+      perform_state_transition(STATE_UNLOAD_RIRO_BEGIN);
       break;
 
     case MCODE_UNLOAD_TIMED:
       valid_command_found = true;
       setRequestedSpeed(parseGCodeParameter('S', -1));
       g_requested_pause = parseGCodeParameter('P', -1);
-      Serial.print("Going to: ");
-      Serial.println(STATE_UNLOAD_TIMED_BEGIN);
       perform_state_transition(STATE_UNLOAD_TIMED_BEGIN);
       break;
   }

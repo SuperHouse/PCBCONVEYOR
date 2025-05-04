@@ -69,12 +69,22 @@ const float steps_per_mm       = 39.47;
 #define  GPA0 0                         // Port A of IO expander
 #define  GPA1 1                         // Port A of IO expander
 #define  GPA2 2                         // Port A of IO expander
+#define  GPA3 3
+#define  GPA4 4
+#define  GPA5 5
+#define  GPA6 6
+#define  GPA7 7
 #define  PCB_SENSOR_L_XSHUT     GPA0
 #define  PCB_SENSOR_M_XSHUT     GPA1
 #define  PCB_SENSOR_R_XSHUT     GPA2
 
 /* CAN bus */
-#define  CAN_BUS_SPEED         250E3
+#define  CAN_BUS_SPEED           250E3
+#define  J1939_UPSTREAM_ADDRESS   0xF0   // Range for PnP: 0x80-8F, 0xF0-F1 (0xF0-F1 are reserved)
+#define  J1939_SOURCE_ADDRESS     0x90   // Range for conveyors: 0x90-9F
+#define  J1939_DOWNSTREAM_ADDRESS 0x80   // Range for PnP: 0x80-8F, 0xF0-F1 (0xF0-F1 are reserved)
+
+
 //#define  CAN_RX_PIN                4
 //#define  CAN_TX_PIN                5
 
@@ -84,7 +94,7 @@ const float steps_per_mm       = 39.47;
 #define  MCP23017_ADDR          0x20
 
 /* Ready-in / ready-out connections */
-#define  READY_IN_LEFT_PIN        99
-#define  READY_OUT_LEFT_PIN       99
-#define  READY_IN_RIGHT_PIN       99
-#define  READY_OUT_RIGHT_PIN      99
+#define  READY_IN_LEFT_PIN        GPA4
+#define  READY_OUT_LEFT_PIN       GPA5
+#define  READY_IN_RIGHT_PIN       GPA6
+#define  READY_OUT_RIGHT_PIN      GPA7

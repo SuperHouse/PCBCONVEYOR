@@ -19,12 +19,13 @@
   "M50 S<speed>"           Load to middle immediately                       **NOT YET IMPLEMENTED**
   "M51 S<speed>"           Load to middle when ready-in/out                 **NOT YET IMPLEMENTED**
   "M52 S<speed>"           Load to end immediately                          **NOT YET IMPLEMENTED**
-  "M53 S<speed>"           Move first board on the conveyor to the end      **NOT YET IMPLEMENTED**
-  "M54 S<speed>"           Unload immediately
-  "M55 S<speed>"           Unload when ready-in/out                         **NOT YET IMPLEMENTED**
-  "M56 S<speed> P<dwell>"  Unload at a timed interval
-  "M57 S<speed>"           Load and unload when ready-in/out                **NOT YET IMPLEMENTED**
-  "M58 S<speed> P<dwell>"  Load when ready-in/out, unload at timed interval **NOT YET IMPLEMENTED**
+  "M53 S<speed>"           Load to end when ready-in/out                    **NOT YET IMPLEMENTED**
+  "M54 S<speed>"           Move first board on the conveyor to the end      **NOT YET IMPLEMENTED**
+  "M55 S<speed>"           Unload immediately
+  "M56 S<speed>"           Unload when ready-in/out
+  "M57 S<speed> P<dwell>"  Unload at a timed interval
+  "M58 S<speed>"           Load and unload when ready-in/out                **NOT YET IMPLEMENTED**
+  "M59 S<speed> P<dwell>"  Load when ready-in/out, unload at timed interval **NOT YET IMPLEMENTED**
 
   The <speed> argument is in mm/minute. Range is 600 - 2200mm/min.
 
@@ -124,22 +125,29 @@
 #define  STATE_STOPPED    10
 #define  STATE_CONSTANT   11
 
-// M54 S<speed>: Unload one board and then stop. This assumes a board is already sitting
+// M55 S<speed>: Unload one board and then stop. This assumes a board is already sitting
 // on the conveyor. Ignores ready-in/out.
-#define  STATE_UNLOAD_NOW_BEGIN         540
-#define  STATE_UNLOAD_NOW_MOVING        541
-#define  STATE_UNLOAD_NOW_REACHED_END   542
-#define  STATE_UNLOAD_NOW_CLEARED_END   543
-#define  STATE_UNLOAD_NOW_RUNON         544   // Continue running briefly after PCB cleared sensor
+#define  STATE_UNLOAD_NOW_BEGIN         550
+#define  STATE_UNLOAD_NOW_MOVING        551
+#define  STATE_UNLOAD_NOW_REACHED_END   552
+#define  STATE_UNLOAD_NOW_CLEARED_END   553
+#define  STATE_UNLOAD_NOW_RUNON         554   // Continue running briefly after PCB cleared sensor
 // What state do we transition to after 23? 1? 10?
 
-// M56 S<speed> P<interval>: Unload boards at timed intervals. This assumes boards are
+// M56 S<speed>: Unload when ready-in/out
+#define  STATE_UNLOAD_RIRO_BEGIN        560
+#define  STATE_UNLOAD_RIRO_MOVING       561
+#define  STATE_UNLOAD_RIRO_REACHED_END  562
+#define  STATE_UNLOAD_RIRO_CLEARED_END  563
+#define  STATE_UNLOAD_RIRO_RUNON        564
+
+// M57 S<speed> P<interval>: Unload boards at timed intervals. This assumes boards are
 // already sitting on the conveyor. Ignores ready-in/out.
-#define  STATE_UNLOAD_TIMED_BEGIN       560
-#define  STATE_UNLOAD_TIMED_MOVING      561
-#define  STATE_UNLOAD_TIMED_REACHED_END 562
-#define  STATE_UNLOAD_TIMED_CLEARED_END 563
-#define  STATE_UNLOAD_TIMED_PAUSE       564
+#define  STATE_UNLOAD_TIMED_BEGIN       570
+#define  STATE_UNLOAD_TIMED_MOVING      571
+#define  STATE_UNLOAD_TIMED_REACHED_END 572
+#define  STATE_UNLOAD_TIMED_CLEARED_END 573
+#define  STATE_UNLOAD_TIMED_PAUSE       574
 
 #define  OUT_OF_RANGE           4     // TOF sensors return 4 when out of range
 
@@ -178,6 +186,11 @@ bool     g_entrance_sensor = UNTRIPPED;
 bool     g_middle_sensor   = UNTRIPPED;
 bool     g_exit_sensor     = UNTRIPPED;
 uint8_t  g_exit_sensor_count = 0;
+
+// Ready-in / Ready-out handshaking
+bool     g_ready_in_left   = false;
+bool     g_ready_in_right  = false;
+
 
 // General
 char g_device_id[23];                 // Unique ID from ESP chip ID
@@ -226,6 +239,7 @@ Arduino_GFX *gfx = new Arduino_ST7796(bus, 22 /* RST */, 3 /* rotation */);
 #include "serial_comms.h"
 #include "can_comms.h"
 #include "pcb_sensors.h"
+#include "riro.h"
 
 /*
   Setup
@@ -433,6 +447,7 @@ void loop()
   read_pcb_sensors();
   //debug_sensor_values();
   process_state_machine();
+  check_ready_in();
 }
 
 void process_state_machine()
@@ -453,13 +468,13 @@ void process_state_machine()
       break;
 
     /* UNLOAD_NOW block */
-    case STATE_UNLOAD_NOW_BEGIN:  // 20
+    case STATE_UNLOAD_NOW_BEGIN:  //
       g_x_direction = RIGHT;
       setConveyorMotorSpeed();
       perform_state_transition(STATE_UNLOAD_NOW_MOVING);
       break;
 
-    case STATE_UNLOAD_NOW_MOVING:  // 21
+    case STATE_UNLOAD_NOW_MOVING:  //
       // Check exit sensor
       if (TRIPPED == g_exit_sensor)
       {
@@ -472,7 +487,7 @@ void process_state_machine()
       }
       break;
 
-    case STATE_UNLOAD_NOW_REACHED_END:  //22
+    case STATE_UNLOAD_NOW_REACHED_END:  //
       // Check exit sensor
       if (UNTRIPPED == g_exit_sensor)
       {
@@ -493,7 +508,7 @@ void process_state_machine()
       perform_state_transition(STATE_UNLOAD_NOW_RUNON);
       break;
 
-    case STATE_UNLOAD_NOW_RUNON:  // 24
+    case STATE_UNLOAD_NOW_RUNON:  //
       // Check the runon timer
       if (millis() > g_runon_began + RUNON_TIME)
       {
@@ -501,6 +516,62 @@ void process_state_machine()
         perform_state_transition(STATE_IDLE);
       }
       break;
+
+
+    /* UNLOAD_RIRO block */
+    case STATE_UNLOAD_RIRO_BEGIN:  //
+      //g_x_direction = STOP;
+      if (g_ready_in_right)
+      {
+        perform_state_transition(STATE_UNLOAD_RIRO_MOVING);
+      }
+      break;
+
+    case STATE_UNLOAD_RIRO_MOVING:  //
+      g_x_direction = RIGHT;
+      setConveyorMotorSpeed();
+      // Check exit sensor
+      if (TRIPPED == g_exit_sensor)
+      {
+        perform_state_transition(STATE_UNLOAD_RIRO_REACHED_END);
+      }
+      if (millis() > g_last_state_change + (UNLOAD_TIMEOUT * 1000))
+      {
+        g_x_direction = STOP;
+        perform_state_transition(STATE_IDLE);
+      }
+      break;
+
+    case STATE_UNLOAD_RIRO_REACHED_END:  //
+      // Check exit sensor
+      if (UNTRIPPED == g_exit_sensor)
+      {
+        g_exit_sensor_count++;
+        if (g_exit_sensor_count > SENSOR_DEBOUNCE_COUNT)
+        {
+          g_exit_sensor_count = 0;
+          perform_state_transition(STATE_UNLOAD_RIRO_CLEARED_END);
+        }
+      } else {
+        g_exit_sensor_count = 0;
+      }
+      break;
+
+    case STATE_UNLOAD_RIRO_CLEARED_END:  // 23
+      // Begin the runon timer
+      g_runon_began = millis();
+      perform_state_transition(STATE_UNLOAD_RIRO_RUNON);
+      break;
+
+    case STATE_UNLOAD_RIRO_RUNON:  //
+      // Check the runon timer
+      if (millis() > g_runon_began + RUNON_TIME)
+      {
+        g_x_direction = STOP;
+        perform_state_transition(STATE_UNLOAD_RIRO_BEGIN);
+      }
+      break;
+
 
     /* UNLOAD_TIMED block */
     case STATE_UNLOAD_TIMED_BEGIN:  //
