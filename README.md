@@ -12,7 +12,10 @@ A conveyor belt for linking together PCB assembly machines, includirg
 pick-and-place, reflow, optical inspection, etc.
 
 The width of the belt is adjustable to suit different sizes of PCBs
-and panels.
+and panels. This project includes the design for the mechanical
+structure, a controller, and firmware for the controller.
+
+![PCBConveyor controller v3.0](Images/PCBConveyer-v3_0.png "PCB Controller")
 
 More information:
 
@@ -20,10 +23,8 @@ More information:
 
 INSTALLATION
 ------------
-The PCB design is saved as an EAGLE project. EAGLE PCB design software
-is available free for non-commercial use. To use this project download
-it and place the directory containing these files into the "eagle"
-directory on your computer. Then open EAGLE and navigate to the project.
+The "Hardware" directory contains the PCB design as an EAGLE project.
+This can be imported into KiCAD, or opened natively using Fusion360.
 
 
 CREDITS
