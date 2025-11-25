@@ -8,7 +8,7 @@ so that Seon can access it, but it's not in a ready state for
 general consumption.
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-A conveyor belt for linking together PCB assembly machines, includirg
+A conveyor belt for linking together PCB assembly machines, including
 pick-and-place, reflow, optical inspection, etc.
 
 The width of the belt is adjustable to suit different sizes of PCBs
