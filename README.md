@@ -15,7 +15,7 @@ The width of the belt is adjustable to suit different sizes of PCBs
 and panels. This project includes the design for the mechanical
 structure, a controller, and firmware for the controller.
 
-![PCBConveyor controller v3.0](Images/PCBConveyer-v3_0.png "PCB Controller")
+![PCBConveyor controller v3.0](Images/PCBConveyor-v3_0.png "PCB Controller")
 
 More information:
 
